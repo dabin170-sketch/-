@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>지민의 미래마을 — 데모</title>
+<style>
+  :root{
+    --ui-bg: rgba(255,255,255,0.9);
+    --accent: #f2a65a;
+    --muted: #6b6b6b;
+    --panel-radius: 12px;
+    font-family: "Noto Sans KR", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  }
+  html,body{height:100%;margin:0;background:linear-gradient(#cfe9ff,#f7f3ef);overflow:hidden}
+  #game {
+    position:relative;
+    width:100%;
+    height:100vh;
+    touch-action:none;
+    user-select:none;
+  }
+  canvas { display:block; background:transparent; width:100%; height:100%; }
+  /* UI panels */
+  .ui {
+    position:absolute; left:12px; top:12px; z-index:40;
+    display:flex; gap:8px; flex-direction:column;
+  }
+  .panel {
+    background:var(--ui-bg); border-radius:var(--panel-radius);
+    padding:10px 12px; box-shadow:0 6px 18px rgba(0,0,0,0.12);
+    min-width:160px;
+  }
+  .panel h4{margin:0 0 6px 0;font-size:14px;color:#333}
+  .stat {font-size:13px;color:var(--muted)}
+  .bottom-ui {position:absolute; right:12px; bottom:12px; z-index:40; display:flex; gap:8px; flex-direction:column; align-items:flex-end;}
+  .btn {
+    background:linear-gradient(180deg,#fff,#f3f3f3); border-radius:10px; padding:8px 12px; cursor:pointer;
+    box-shadow:0 4px 10px rgba(0,0,0,0.08); border:1px solid rgba(0,0,0,0.06);
+    font-weight:600;
+  }
+  .btn:active{transform:translateY(1px)}
+  /* interaction hint */
+  #hint {position:absolute; left:50%; transform:translateX(-50%); bottom:18vh; z-index:45; background:rgba(255,255,255,0.95); padding:8px 12px; border-radius:999px; box-shadow:0 6px 18px rgba(0,0,0,0.12); font-weight:600}
+  /* modal */
+  .modal {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:60;
+    width:90%; max-width:720px; background:var(--ui-bg); border-radius:14px; padding:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.25);
+  }
+  .hidden{display:none}
+  /* mobile controls */
+  #touch-left, #touch-right, #touch-up, #touch-down {
+    position:absolute; left:12px; bottom:12px; width:120px; height:120px; z-index:50; opacity:0.001;
+  }
+  #touch-action { position:absolute; right:12px; bottom:12px; width:84px; height:84px; border-radius:50%; background:linear-gradient(#fff,#f7f7f7); box-shadow:0 8px 20px rgba(0,0,0,0.12); display:flex; align-items:center; justify-content:center; z-index:50; font-weight:700; }
+  /* small map */
+  #minimap { position:absolute; right:12px; top:12px; z-index:40; width:140px; height:100px; border-radius:10px; overflow:hidden; box-shadow:0 6px 18px rgba(0,0,0,0.12); background:linear-gradient(#fff,#f8f8f8); padding:6px; }
+  #minimap canvas{width:100%;height:100%}
+  /* bakery UI */
+  .shelf { display:flex; gap:8px; margin:8px 0; }
+  .bread { width:64px; height:48px; border-radius:8px; background:linear-gradient(#f7d9b0,#e6a86a); box-shadow:inset 0 -6px 12px rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-weight:700; color:#6b3a1a; cursor:pointer; }
+  .order-box { border:2px dashed #d9d9d9; padding:8px; border-radius:8px; min-height:64px; display:flex; gap:6px; align-items:center; }
+  .value-card { display:flex; gap:8px; margin-top:8px; }
+  .value { padding:8px; border-radius:8px; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.06); font-size:13px; }
+  footer { position:absolute; left:0; right:0; bottom:0; text-align:center; font-size:12px; color:#666; padding:6px 0; z-index:10; }
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="world"></canvas>
+  <div class="ui">
+    <div class="panel">
+      <h4>지민</h4>
+      <div class="stat">직업: <span id="job">미정</span></div>
+      <div class="stat">자산: <span id="money">0</span>원</div>
+      <div class="stat">숙련도: <span id="xp">0</span></div>
+    </div>
+    <div class="panel">
+      <h4>현재 미션</h4>
+      <div id="missionText" class="stat">마을을 탐험해 빵집을 찾아보세요.</div>
+    </div>
+  </div>
+
+  <div id="minimap" class="panel">
+    <canvas id="mini"></canvas>
+  </div>
+
+  <div class="bottom-ui">
+    <div class="btn" id="openInventory">지도 / 인벤토리</div>
+    <div class="btn" id="saveBtn">수동 저장</div>
+  </div>
+
+  <div id="hint" class="hidden">E 키로 상호작용</div>
+
+  <!-- Modal: 빵집 미니게임 -->
+  <div id="bakeryModal" class="modal hidden">
+    <h3>빵집 체험 — 주문 처리</h3>
+    <div style="display:flex; gap:12px;">
+      <div style="flex:1;">
+        <div style="font-weight:700">주문서</div>
+        <div id="orderList" style="background:#fff;padding:8px;border-radius:8px;margin-top:6px;"></div>
+        <div style="margin-top:8px;font-size:13px;color:#555">포장 상자에 빵을 넣고 '전달'을 누르세요.</div>
+      </div>
+      <div style="width:220px;">
+        <div style="font-weight:700">진열대</div>
+        <div class="shelf" id="shelf"></div>
+        <div style="font-weight:700;margin-top:8px">포장 상자</div>
+        <div class="order-box" id="box"></div>
+        <div style="margin-top:8px;display:flex;gap:8px;">
+          <div class="btn" id="deliverBtn">전달</div>
+          <div class="btn" id="cancelBakery">취소</div>
+        </div>
+      </div>
+    </div>
+    <div id="result" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- Simple map/inventory modal -->
+  <div id="mapModal" class="modal hidden">
+    <h3>마을 지도</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div class="btn" data-go="bakery">빵집으로 이동</div>
+      <div class="btn" data-go="library">도서관으로 이동</div>
+      <div class="btn" data-go="park">공원으로 이동</div>
+    </div>
+    <div style="margin-top:12px;">
+      <div style="font-weight:700">인벤토리</div>
+      <div id="inventory" style="margin-top:6px;">(비어 있음)</div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <div class="btn" id="closeMap">닫기</div>
+    </div>
+  </div>
+
+  <div id="touch-action" class="hidden">E</div>
+
+  <footer>데모: 지민의 미래마을 — 빵집 체험 포함. 저장은 자동/수동으로 가능합니다.</footer>
+</div>
+
+<script>
+/* =========================
+   전역 설정 및 상태
+   ========================= */
+const canvas = document.getElementById('world');
+const ctx = canvas.getContext('2d', { alpha: true });
+const mini = document.getElementById('mini');
+const mctx = mini.getContext('2d');
+let W = canvas.width = innerWidth;
+let H = canvas.height = innerHeight;
+
+function resize(){
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  mini.width = 280; mini.height = 200;
+}
+addEventListener('resize', resize);
+resize();
+
+const state = {
+  player: { x: 400, y: 300, w:48, h:80, dir:1, speed:140, vx:0, vy:0, anim:0, xp:0 },
+  camera: { x:0, y:0, w:W, h:H },
+  world: { w:2000, h:1200 },
+  money: 120000,
+  currentMission: '마을을 탐험해 빵집을 찾아보세요.',
+  inModal: false,
+  keys: {},
+  lastTime: performance.now(),
+  npcs: [],
+  buildings: [],
+  savedAt: null
+};
+
+/* =========================
+   유틸리티
+   ========================= */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function worldToScreen(x,y){ return { x: x - state.camera.x + W/2, y: y - state.camera.y + H/2 }; }
+function screenToWorld(x,y){ return { x: x + state.camera.x - W/2, y: y + state.camera.y - H/2 }; }
+
+/* =========================
+   마을 구성: 건물, 장애물, NPC
+   ========================= */
+function setupWorld(){
+  // 건물: id, x,y,w,h,type,name
+  state.buildings = [
+    { id:'home', name:'주택가', x:120, y:200, w:260, h:180, type:'house' },
+    { id:'bakery', name:'빵집', x:700, y:320, w:260, h:180, type:'bakery' },
+    { id:'cafe', name:'카페', x:1100, y:260, w:260, h:180, type:'cafe' },
+    { id:'library', name:'도서관', x:400, y:700, w:300, h:200, type:'library' },
+    { id:'park', name:'공원', x:1500, y:700, w:360, h:260, type:'park' }
+  ];
+  // NPC 샘플: 걷는 패턴
+  state.npcs = [];
+  for(let i=0;i<6;i++){
+    state.npcs.push({
+      x: 200 + i*180,
+      y: 420 + (i%2)*40,
+      dir: i%2?1:-1,
+      speed: 30 + (i%3)*10,
+      anim:0,
+      type:'resident'
+    });
+  }
+}
+setupWorld();
+
+/* =========================
+   입력 처리 (키보드 + 터치)
+   ========================= */
+addEventListener('keydown', e=>{
+  state.keys[e.key.toLowerCase()] = true;
+  if(e.key === 'e' || e.key === 'E') tryInteract();
+});
+addEventListener('keyup', e=>{
+  state.keys[e.key.toLowerCase()] = false;
+});
+
+let touchStart = null;
+let touchId = null;
+addEventListener('touchstart', e=>{
+  if(e.touches.length){
+    const t = e.touches[0];
+    touchStart = { x:t.clientX, y:t.clientY };
+    touchId = t.identifier;
+  }
+});
+addEventListener('touchmove', e=>{
+  if(touchId === null) return;
+  for(const t of e.touches){
+    if(t.identifier === touchId){
+      const dx = t.clientX - touchStart.x;
+      const dy = t.clientY - touchStart.y;
+      // 가상 조이스틱: 이동 벡터
+      state.keys['touch_dx'] = dx/40;
+      state.keys['touch_dy'] = dy/40;
+    }
+  }
+});
+addEventListener('touchend', e=>{
+  state.keys['touch_dx'] = 0;
+  state.keys['touch_dy'] = 0;
+  touchStart = null; touchId = null;
+});
+
+/* =========================
+   카메라
+   ========================= */
+function updateCamera(dt){
+  const p = state.player;
+  // 카메라는 플레이어를 중심으로 부드럽게 따라감
+  const targetX = p.x;
+  const targetY = p.y;
+  state.camera.x += (targetX - state.camera.x) * clamp(5*dt, 0, 1);
+  state.camera.y += (targetY - state.camera.y) * clamp(5*dt, 0, 1);
+  // 월드 경계
+  const halfW = W/2, halfH = H/2;
+  state.camera.x = clamp(state.camera.x, halfW - state.world.w, state.world.w - halfW);
+  state.camera.y = clamp(state.camera.y, halfH - state.world.h, state.world.h - halfH);
+}
+
+/* =========================
+   플레이어 렌더링 (프로그램으로 그린 세밀한 캐릭터)
+   ========================= */
+function drawPlayer(ctx, x, y, dir, anim, stateName='idle'){
+  // x,y는 캐릭터 중심 기준
+  ctx.save();
+  ctx.translate(x, y);
+  if(dir < 0) ctx.scale(-1,1); // 좌우 반전은 얼굴/의상 디테일을 고려해 사용
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.beginPath(); ctx.ellipse(0,36,28,10,0,0,Math.PI*2); ctx.fill();
+
+  // body (겹쳐입은 옷 디테일)
+  ctx.save();
+  ctx.translate(0, -6);
+  // 코트
+  const coatGrad = ctx.createLinearGradient(-20,-40,20,40);
+  coatGrad.addColorStop(0,'#6b8fb3'); coatGrad.addColorStop(1,'#4f6f8f');
+  ctx.fillStyle = coatGrad;
+  ctx.beginPath();
+  ctx.moveTo(-22, -10); ctx.quadraticCurveTo(-28, 10, -18, 40);
+  ctx.lineTo(18,40); ctx.quadraticCurveTo(28,10,22,-10); ctx.closePath();
+  ctx.fill();
+  // 옷 주름
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(-6,0); ctx.quadraticCurveTo(0,8,6,0); ctx.stroke();
+  // 셔츠
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(-10, -6, 20, 12);
+  // 가방 스트랩
+  ctx.strokeStyle = '#3b2f2f'; ctx.lineWidth=4;
+  ctx.beginPath(); ctx.moveTo(-12,-2); ctx.lineTo(-26,6); ctx.stroke();
+  ctx.restore();
+
+  // legs (걷기 애니메이션)
+  ctx.save();
+  const step = Math.sin(anim*8) * 12;
+  ctx.translate(0, 36);
+  ctx.fillStyle = '#3b3b3b';
+  // left leg
+  ctx.save(); ctx.translate(-8,0); ctx.rotate((stateName==='walk'? step:0)*Math.PI/180);
+  ctx.fillRect(-6,0,12,28); ctx.restore();
+  // right leg
+  ctx.save(); ctx.translate(8,0); ctx.rotate((stateName==='walk'? -step:0)*Math.PI/180);
+  ctx.fillRect(-6,0,12,28); ctx.restore();
+  ctx.restore();
+
+  // head (얼굴 디테일)
+  ctx.save();
+  ctx.translate(0, -36);
+  // hair back
+  ctx.fillStyle = '#2f1f1f';
+  ctx.beginPath();
+  ctx.ellipse(0,-6,28,22,0,0,Math.PI*2); ctx.fill();
+  // hair strands (간단한 가닥 표현)
+  ctx.strokeStyle = '#1f1414'; ctx.lineWidth=2;
+  for(let i=-12;i<=12;i+=6){
+    ctx.beginPath(); ctx.moveTo(i-2,-18); ctx.quadraticCurveTo(i,-6,i+6,2); ctx.stroke();
+  }
+  // face
+  ctx.fillStyle = '#ffdcb8';
+  ctx.beginPath(); ctx.ellipse(0,-6,18,22,0,0,Math.PI*2); ctx.fill();
+  // eyes
+  ctx.fillStyle = '#2b2b2b';
+  ctx.beginPath(); ctx.ellipse(-6,-8,2.6,3.6,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(6,-8,2.6,3.6,0,0,Math.PI*2); ctx.fill();
+  // eyebrows
+  ctx.strokeStyle = '#3b2f2f'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(-10,-14); ctx.quadraticCurveTo(-6,-16,-2,-14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(10,-14); ctx.quadraticCurveTo(6,-16,2,-14); ctx.stroke();
+  // nose
+  ctx.strokeStyle = '#b07a5a'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(0,-6); ctx.lineTo(0,-2); ctx.stroke();
+  // mouth (표정: 기본)
+  ctx.strokeStyle = '#b35a3a'; ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.moveTo(-4,0); ctx.quadraticCurveTo(0,4,4,0); ctx.stroke();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+/* =========================
+   월드 렌더링: 배경, 건물, 나무, NPC
+   ========================= */
+function drawBackground(ctx){
+  // 하늘 그라데이션은 body 배경으로 처리. 여기서는 지면과 원경
+  // 원경 언덕
+  ctx.save();
+  ctx.translate(W/2 - state.camera.x + state.world.w/2, H/2 - state.camera.y + state.world.h/2);
+  ctx.fillStyle = '#dfeee0';
+  ctx.beginPath(); ctx.ellipse(-200, 200, 900, 260, 0, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // 길
+  ctx.fillStyle = '#e9dfd0';
+  const topLeft = worldToScreen(0, 480);
+  ctx.fillRect(0, topLeft.y, W, H - topLeft.y);
+}
+
+function drawBuildings(ctx){
+  for(const b of state.buildings){
+    const p = worldToScreen(b.x, b.y);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    // building base
+    ctx.fillStyle = b.type==='bakery' ? '#f7e6d0' : (b.type==='cafe' ? '#efe6ff' : '#f0f6f2');
+    ctx.strokeStyle = '#cdbfae';
+    ctx.lineWidth = 2;
+    roundRect(ctx, -b.w/2, -b.h/2, b.w, b.h, 8, true, true);
+    // windows and door with depth
+    // windows
+    for(let i=-1;i<=1;i++){
+      ctx.fillStyle = '#fff7e8';
+      roundRect(ctx, i*60 - 36, -b.h/2 + 24, 60, 44,6,true,false);
+      // inner shelf or light
+      ctx.fillStyle = 'rgba(255,220,160,0.6)';
+      ctx.fillRect(i*60 - 30, -b.h/2 + 34, 44, 20);
+    }
+    // sign
+    ctx.fillStyle = '#c77a4a';
+    ctx.fillRect(-b.w/2 + 12, -b.h/2 - 18, 120, 28);
+    ctx.fillStyle = '#fff'; ctx.font='14px Noto Sans KR';
+    ctx.fillText(b.name, -b.w/2 + 20, -b.h/2 - 0);
+    // small details: flower pot
+    ctx.fillStyle = '#7a4b3a';
+    ctx.fillRect(b.w/2 - 36, b.h/2 - 18, 24, 12);
+    ctx.fillStyle = '#7ad29a';
+    ctx.beginPath(); ctx.ellipse(b.w/2 - 24, b.h/2 - 18, 10,6,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function roundRect(ctx,x,y,w,h,r,fill,stroke){
+  if(typeof r==='undefined') r=5;
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+  if(fill) ctx.fill();
+  if(stroke) ctx.stroke();
+}
+
+/* =========================
+   NPC 렌더링 및 업데이트
+   ========================= */
+function updateNPCs(dt){
+  for(const n of state.npcs){
+    n.x += n.dir * n.speed * dt;
+    n.anim += dt;
+    if(n.x < 80 || n.x > state.world.w - 80) n.dir *= -1;
+  }
+}
+function drawNPCs(ctx){
+  for(const n of state.npcs){
+    const p = worldToScreen(n.x, n.y);
+    drawSimpleNPC(ctx, p.x, p.y, n.dir, n.anim);
+  }
+}
+function drawSimpleNPC(ctx,x,y,dir,anim){
+  ctx.save(); ctx.translate(x,y);
+  if(dir<0) ctx.scale(-1,1);
+  // body
+  ctx.fillStyle = '#e6c9b0'; ctx.beginPath(); ctx.ellipse(0,-10,14,18,0,0,Math.PI*2); ctx.fill();
+  // head
+  ctx.fillStyle = '#ffdcb8'; ctx.beginPath(); ctx.ellipse(0,-28,10,12,0,0,Math.PI*2); ctx.fill();
+  // legs
+  ctx.fillStyle = '#3b3b3b'; ctx.fillRect(-6,6,6,18); ctx.fillRect(2,6,6,18);
+  ctx.restore();
+}
+
+/* =========================
+   충돌 판정 (간단한 AABB)
+   ========================= */
+function checkCollisions(nx, ny){
+  // world bounds
+  nx = clamp(nx, 40, state.world.w - 40);
+  ny = clamp(ny, 40, state.world.h - 40);
+  // buildings as obstacles (prevent entering through walls; allow interaction near door)
+  for(const b of state.buildings){
+    const left = b.x - b.w/2 - 8, right = b.x + b.w/2 + 8;
+    const top = b.y - b.h/2 - 8, bottom = b.y + b.h/2 + 8;
+    if(nx > left && nx < right && ny > top && ny < bottom){
+      // allow entering only if near door area (front center)
+      const doorX = b.x, doorY = b.y + b.h/2;
+      const dist = Math.hypot(nx - doorX, ny - doorY);
+      if(dist < 60) {
+        // near door: allow but mark interactable
+        return { x: nx, y: ny, near: b };
+      } else {
+        // block movement: push back to previous position by returning null
+        return null;
+      }
+    }
+  }
+  return { x: nx, y: ny, near: null };
+}
+
+/* =========================
+   상호작용 처리
+   ========================= */
+function tryInteract(){
+  if(state.inModal) return;
+  // check nearby building
+  for(const b of state.buildings){
+    const dist = Math.hypot(state.player.x - b.x, state.player.y - (b.y + b.h/2));
+    if(dist < 80){
+      // open building-specific modal
+      if(b.type === 'bakery') openBakery();
+      else {
+        state.currentMission = `${b.name}에 도착했습니다. (데모: 상호작용 가능)`;
+        showHint(`${b.name} 앞입니다. E로 더보기`);
+      }
+      return;
+    }
+  }
+  showHint('상호작용 가능한 대상이 없습니다.');
+}
+
+/* =========================
+   빵집 미니게임 로직
+   ========================= */
+const bakeryModal = document.getElementById('bakeryModal');
+const shelfEl = document.getElementById('shelf');
+const boxEl = document.getElementById('box');
+const orderListEl = document.getElementById('orderList');
+const resultEl = document.getElementById('result');
+
+const breads = [
+  { id:'baguette', name:'바게트', price:3000 },
+  { id:'croissant', name:'크루아상', price:2500 },
+  { id:'roll', name:'모닝롤', price:1800 },
+  { id:'sweet', name:'단팥빵', price:2200 }
+];
+
+let currentOrder = [];
+
+function openBakery(){
+  state.inModal = true;
+  bakeryModal.classList.remove('hidden');
+  document.getElementById('hint').classList.add('hidden');
+  // generate order (1~3 items)
+  currentOrder = [];
+  const count = 1 + Math.floor(Math.random()*3);
+  for(let i=0;i<count;i++){
+    currentOrder.push(breads[Math.floor(Math.random()*breads.length)].id);
+  }
+  renderOrder();
+  renderShelf();
+  boxEl.innerHTML = '';
+  resultEl.innerHTML = '';
+}
+
+function renderOrder(){
+  orderListEl.innerHTML = '';
+  currentOrder.forEach((id, idx)=>{
+    const b = breads.find(x=>x.id===id);
+    const div = document.createElement('div');
+    div.textContent = `${idx+1}. ${b.name}`;
+    orderListEl.appendChild(div);
+  });
+}
+
+function renderShelf(){
+  shelfEl.innerHTML = '';
+  breads.forEach(b=>{
+    const el = document.createElement('div');
+    el.className = 'bread';
+    el.textContent = b.name;
+    el.dataset.id = b.id;
+    el.addEventListener('click', ()=> {
+      // add to box
+      const item = document.createElement('div');
+      item.textContent = b.name;
+      item.style.padding = '6px 8px';
+      item.style.background = '#fff';
+      item.style.borderRadius = '6px';
+      item.style.boxShadow = '0 6px 12px rgba(0,0,0,0.06)';
+      item.dataset.id = b.id;
+      boxEl.appendChild(item);
+    });
+    shelfEl.appendChild(el);
+  });
+}
+
+document.getElementById('deliverBtn').addEventListener('click', ()=>{
+  // check if box matches order (order items in any order)
+  const packed = Array.from(boxEl.children).map(c=>c.dataset.id);
+  let ok = true;
+  if(packed.length !== currentOrder.length) ok = false;
+  else {
+    const copy = currentOrder.slice();
+    for(const p of packed){
+      const idx = copy.indexOf(p);
+      if(idx === -1){ ok = false; break; }
+      copy.splice(idx,1);
+    }
+  }
+  if(ok){
+    // success: pay and xp
+    const pay = currentOrder.reduce((s,id)=> s + breads.find(b=>b.id===id).price, 0);
+    state.money += pay;
+    state.player.xp += 10 * currentOrder.length;
+    resultEl.innerHTML = `<div style="color:green;font-weight:700">성공! 보수 ${pay}원 획득</div>`;
+    updateUI();
+    // show value card (개인/사회/경제)
+    showValueCards();
+    setTimeout(()=>{ closeBakery(); }, 1400);
+  } else {
+    resultEl.innerHTML = `<div style="color:#b33;font-weight:700">주문과 일치하지 않습니다. 다시 시도하세요.</div>`;
+  }
+});
+
+document.getElementById('cancelBakery').addEventListener('click', closeBakery);
+
+function closeBakery(){
+  bakeryModal.classList.add('hidden');
+  state.inModal = false;
+  showHint('빵집을 나왔습니다.');
+  saveState();
+}
+
+function showValueCards(){
+  const container = document.createElement('div');
+  container.className = 'value-card';
+  const personal = document.createElement('div'); personal.className='value';
+  personal.innerHTML = '<b>개인적 가치</b><div style="font-size:12px;color:#444">기술 향상과 성취감을 얻었습니다.</div>';
+  const social = document.createElement('div'); social.className='value';
+  social.innerHTML = '<b>사회적 가치</b><div style="font-size:12px;color:#444">주민에게 필요한 빵을 제공했습니다.</div>';
+  const economic = document.createElement('div'); economic.className='value';
+  economic.innerHTML = '<b>경제적 가치</b><div style="font-size:12px;color:#444">일한 대가로 수입을 얻었습니다.</div>';
+  resultEl.appendChild(container);
+  container.appendChild(personal); container.appendChild(social); container.appendChild(economic);
+}
+
+/* =========================
+   UI 업데이트 및 힌트
+   ========================= */
+function updateUI(){
+  document.getElementById('money').textContent = state.money.toLocaleString();
+  document.getElementById('xp').textContent = state.player.xp;
+  document.getElementById('job').textContent = '미래 탐구 중';
+  document.getElementById('missionText').textContent = state.currentMission;
+}
+function showHint(text){
+  const h = document.getElementById('hint');
+  h.textContent = text;
+  h.classList.remove('hidden');
+  setTimeout(()=>{ if(!state.inModal) h.classList.add('hidden'); }, 2200);
+}
+
+/* =========================
+   저장 및 복원
+   ========================= */
+function saveState(){
+  const s = {
+    player: { x: state.player.x, y: state.player.y, xp: state.player.xp },
+    money: state.money,
+    savedAt: Date.now()
+  };
+  localStorage.setItem('jimin_village_save', JSON.stringify(s));
+  state.savedAt = s.savedAt;
+  showHint('진행 상황이 저장되었습니다.');
+}
+function loadState(){
+  const raw = localStorage.getItem('jimin_village_save');
+  if(!raw) return;
+  try{
+    const s = JSON.parse(raw);
+    state.player.x = s.player.x; state.player.y = s.player.y;
+    state.player.xp = s.player.xp || 0;
+    state.money = s.money || state.money;
+    state.savedAt = s.savedAt;
+  }catch(e){}
+}
+document.getElementById('saveBtn').addEventListener('click', saveState);
+
+/* =========================
+   맵 모달
+   ========================= */
+document.getElementById('openInventory').addEventListener('click', ()=>{
+  state.inModal = true;
+  document.getElementById('mapModal').classList.remove('hidden');
+});
+document.getElementById('closeMap').addEventListener('click', ()=>{
+  state.inModal = false;
+  document.getElementById('mapModal').classList.add('hidden');
+});
+document.querySelectorAll('#mapModal .btn[data-go]').forEach(btn=>{
+  btn.addEventListener('click', ()=> {
+    const dest = btn.dataset.go;
+    const b = state.buildings.find(x=>x.type===dest);
+    if(b){ state.player.x = b.x; state.player.y = b.y + b.h/2 + 40; updateUI(); }
+  });
+});
+
+/* =========================
+   메인 루프
+   ========================= */
+function gameLoop(now){
+  const dt = Math.min(0.05, (now - state.lastTime)/1000);
+  state.lastTime = now;
+  // 입력 -> 이동
+  let mx = 0, my = 0;
+  if(state.keys['arrowleft'] || state.keys['a']) mx -= 1;
+  if(state.keys['arrowright'] || state.keys['d']) mx += 1;
+  if(state.keys['arrowup'] || state.keys['w']) my -= 1;
+  if(state.keys['arrowdown'] || state.keys['s']) my += 1;
+  if(state.keys['touch_dx']) mx += state.keys['touch_dx'];
+  if(state.keys['touch_dy']) my += state.keys['touch_dy'];
+  const mag = Math.hypot(mx,my);
+  if(mag > 0.2){
+    mx /= mag; my /= mag;
+    state.player.vx = mx * state.player.speed;
+    state.player.vy = my * state.player.speed;
+    state.player.dir = mx < 0 ? -1 : 1;
+    state.player.anim += dt;
+  } else {
+    state.player.vx = state.player.vy = 0;
+    state.player.anim += dt*0.4;
+  }
+  // 예상 위치
+  const nx = state.player.x + state.player.vx * dt;
+  const ny = state.player.y + state.player.vy * dt;
+  const col = checkCollisions(nx, ny);
+  if(col === null){
+    // blocked: do not move
+  } else {
+    state.player.x = col.x; state.player.y = col.y;
+    if(col.near) {
+      // show hint for interaction
+      if(!state.inModal) {
+        document.getElementById('hint').textContent = 'E 키로 상호작용';
+        document.getElementById('hint').classList.remove('hidden');
+      }
+    }
+  }
+
+  updateNPCs(dt);
+  updateCamera(dt);
+
+  // 렌더
+  ctx.clearRect(0,0,W,H);
+  // world transform: center camera
+  ctx.save();
+  // draw ground and background
+  drawBackground(ctx);
+  // buildings
+  drawBuildings(ctx);
+  // NPCs
+  drawNPCs(ctx);
+  // player
+  const pScreen = worldToScreen(state.player.x, state.player.y);
+  const moving = Math.hypot(state.player.vx, state.player.vy) > 1;
+  drawPlayer(ctx, pScreen.x, pScreen.y - 10, state.player.dir, state.player.anim, moving ? 'walk' : 'idle');
+
+  ctx.restore();
+
+  // minimap
+  drawMiniMap();
+
+  requestAnimationFrame(gameLoop);
+}
+function drawMiniMap(){
+  mctx.clearRect(0,0,mini.width,mini.height);
+  // background
+  mctx.fillStyle = '#f7f7f7'; mctx.fillRect(0,0,mini.width,mini.height);
+  // buildings as rectangles
+  for(const b of state.buildings){
+    const rx = (b.x / state.world.w) * mini.width;
+    const ry = (b.y / state.world.h) * mini.height;
+    mctx.fillStyle = '#c77a4a';
+    mctx.fillRect(rx-6, ry-4, 12, 8);
+  }
+  // player
+  const px = (state.player.x / state.world.w) * mini.width;
+  const py = (state.player.y / state.world.h) * mini.height;
+  mctx.fillStyle = '#2f6f9f';
+  mctx.beginPath(); mctx.arc(px,py,5,0,Math.PI*2); mctx.fill();
+}
+
+/* =========================
+   초기화
+   ========================= */
+loadState();
+updateUI();
+requestAnimationFrame(gameLoop);
+
+/* =========================
+   간단한 테스트용 상호작용: 화면 클릭으로 상호작용
+   ========================= */
+canvas.addEventListener('click', (e)=>{
+  if(state.inModal) return;
+  const w = screenToWorld(e.clientX, e.clientY);
+  // 가까운 건물으로 순간이동(디버그용)
+  // 대신 상호작용 시도
+  tryInteract();
+});
+
+/* =========================
+   자동 저장 주기
+   ========================= */
+setInterval(saveState, 20000);
+
+/* =========================
+   초기 UI 바인딩
+   ========================= */
+document.getElementById('hint').classList.add('hidden');
+document.getElementById('openInventory').addEventListener('click', ()=>{});
+document.getElementById('saveBtn').addEventListener('click', ()=>{});
+updateUI();
+</script>
+</body>
+</html>
