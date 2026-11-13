@@ -1,0 +1,48 @@
+name: LIFE OS 정기 점검
+# 하루 1회(약 1분). 정확한 시각에 시작된다고 가정하지 않는다. 수동 실행도 가능.
+on:
+  schedule:
+    - cron: '17 19 * * *'   # UTC 19:17 ≈ 한국 04:17
+  workflow_dispatch:
+permissions:
+  contents: write          # 데이터 브랜치에 inbox.json을 쓰기 위한 최소 권한
+concurrency:
+  group: lifeos-maintenance
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 데이터 브랜치 확인
+        id: data
+        run: |
+          if git ls-remote --exit-code origin refs/heads/lifeos-data >/dev/null; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.data.outputs.exists == 'true'
+        with:
+          ref: lifeos-data
+          path: data
+      - uses: actions/setup-python@v5
+        if: steps.data.outputs.exists == 'true'
+        with:
+          python-version: '3.13'
+      - name: 정합성·백업 점검
+        if: steps.data.outputs.exists == 'true'
+        env:
+          DATA_ENCRYPTION_KEY: ${{ secrets.DATA_ENCRYPTION_KEY }}
+        run: |
+          pip install -q cryptography
+          cd backend && python -m app.maintenance ../data
+      - name: 점검 결과 기록 (inbox.json)
+        if: steps.data.outputs.exists == 'true'
+        working-directory: data
+        run: |
+          git config user.name "life-os-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add inbox.json
+          git diff --cached --quiet && exit 0
+          git commit -q -m "정기 점검 결과"
+          for i in 1 2 3; do git push -q && exit 0; git pull -q --rebase; done
+          exit 1

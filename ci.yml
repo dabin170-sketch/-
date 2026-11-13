@@ -1,0 +1,24 @@
+name: 테스트
+# 코드가 바뀔 때만 실행 (비공개 저장소는 무료 분을 사용하므로 범위를 좁힘)
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'frontend/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -q -r backend/requirements.txt pytest
+      - run: cd backend && python -m pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: cd frontend && npm ci --no-audit --no-fund && npx tsc --noEmit

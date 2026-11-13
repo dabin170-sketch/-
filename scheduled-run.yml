@@ -1,0 +1,31 @@
+name: LIFE OS 서버 예약 실행
+# 브라우저를 닫아도 '서버 예약 실행'이 켜진 반복 규칙을 실행하기 위해 잠든 Render 서버를 깨운다.
+# - 정확한 시각에 시작된다고 가정하지 않는다 (GitHub 예약 실행은 지연·생략될 수 있음).
+# - 1회 약 1~3분(서버가 깨어나는 시간 포함). 하루 4회 × 30일 ≈ 120~360분 / 무료 2,000분.
+# - 서버가 깨어 있는 동안(약 15분) Render 무료 인스턴스 시간을 쓴다: 하루 4회 ≈ 월 30시간.
+# 저장소 Settings › Secrets and variables › Actions 에 LIFEOS_URL, CRON_TOKEN 을 등록해야 동작한다.
+on:
+  schedule:
+    - cron: '7 */6 * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: lifeos-scheduled-run
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: 서버 깨우기 및 예약 업무 실행
+        env:
+          URL: ${{ secrets.LIFEOS_URL }}
+          TOKEN: ${{ secrets.CRON_TOKEN }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$TOKEN" ]; then echo "LIFEOS_URL / CRON_TOKEN Secret이 없어 건너뜁니다."; exit 0; fi
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 30 "$URL/healthz" >/dev/null; then break; fi
+            echo "서버가 깨어나는 중… ($i)"; sleep 20
+          done
+          curl -fsS --max-time 120 -X POST -H "X-Cron-Token: $TOKEN" "$URL/api/cron/run"
+          echo
